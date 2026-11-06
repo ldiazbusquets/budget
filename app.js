@@ -222,17 +222,25 @@
   }
   function bindRec(root) {
     root.querySelectorAll('[data-rec]').forEach(function (el) { el.onclick = function (e) { if (e.target.closest('[data-paid]')) return; var id = +el.dataset.rec; recForm(S.recurring.filter(function (r) { return r.id === id; })[0]); }; });
-    root.querySelectorAll('[data-paid]').forEach(function (b) { b.onclick = function () { var id = +b.dataset.paid; markPaid(S.recurring.filter(function (r) { return r.id === id; })[0], b); }; });
+    root.querySelectorAll('[data-paid]').forEach(function (b) { b.onclick = function () { var id = +b.dataset.paid; markPaid(S.recurring.filter(function (r) { return r.id === id; })[0]); }; });
   }
-  function markPaid(r, b) {
-    if (!r) return; b.disabled = true;
-    DB.ins('transactions', { date: r.next_date, kind: r.kind, amount: r.amount, category_id: r.category_id, note: r.name })
-      .then(function () { return DB.upd('recurring', r.id, { next_date: advance(r.next_date, r.cadence) }); })
-      .then(function () { toast('Logged ' + r.name + ' · ' + fmt(r.amount)); return loadAll(); }).catch(function (e) { b.disabled = false; fail(e); });
+  function markPaid(r) {
+    if (!r) return;
+    var inc = r.kind === 'income', c = catById(r.category_id), due = r.next_date, t = iso(today());
+    openForm((inc ? 'Received ' : 'Paid ') + r.name + '?',
+      '<p class="mut" style="margin:0">This logs ' + (inc ? 'an income' : 'a payment') + (c ? ' under ' + esc(c.name) : '') + ' and moves the next due date from <b>' + shortDate(due) + '</b> to <b>' + shortDate(advance(due, r.cadence)) + '</b>. Change the amount if this one was different.</p>' +
+      '<div class="money amtbig"><input name="amount" inputmode="decimal" value="' + (+r.amount).toFixed(2) + '" aria-label="Amount"></div>' +
+      '<label class="fld"><span>' + (inc ? 'Received on' : 'Paid on') + '</span><input type="date" name="date" value="' + (due < t ? due : t) + '"></label>',
+      function () {
+        var a = amountOk(val('amount')); if (a == null) return null; if (!val('date')) { formErr('Pick a date.'); return null; }
+        return DB.ins('transactions', { date: val('date'), kind: r.kind, amount: a, category_id: r.category_id, note: r.name })
+          .then(function () { return DB.upd('recurring', r.id, { next_date: advance(due, r.cadence) }); })
+          .then(function () { toast('Logged ' + r.name + ' · ' + fmt(a)); });
+      }, null, inc ? 'Confirm received' : 'Confirm paid');
   }
   function renderRec() {
     var monthly = S.recurring.filter(function (r) { return r.active && r.kind === 'expense'; }).reduce(function (s, r) { return s + +r.amount * (r.cadence === 'weekly' ? 52 / 12 : r.cadence === 'yearly' ? 1 / 12 : 1); }, 0);
-    $('recTotal').textContent = S.recurring.length ? 'About ' + fmt0(monthly) + ' a month in bills and subscriptions. Tap Paid when one goes out: it logs the payment and moves the due date on.' : '';
+    $('recTotal').textContent = S.recurring.length ? 'About ' + fmt0(monthly) + ' a month in bills and subscriptions. Tap Paid when one goes out to confirm it: it logs the payment and moves the due date on.' : '';
     var list = S.recurring.slice().sort(function (a, b) { return (b.active - a.active) || (a.next_date < b.next_date ? -1 : 1); });
     $('reclist').innerHTML = list.length ? list.map(recRow).join('') : '<p class="empty">Add rent, phone, streaming and other bills that repeat. You’ll see them coming up on the overview.</p>';
     bindRec($('reclist'));
@@ -280,8 +288,8 @@
   var formState = null;
   function catOptions(kind, sel) { return '<option value="">Uncategorized</option>' + S.categories.filter(function (c) { return c.kind === kind && (!c.archived || c.id === sel); }).map(function (c) { return '<option value="' + c.id + '"' + (c.id === sel ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join(''); }
   function seg(name, val, a, b) { return '<div class="seg"><label><input type="radio" name="' + name + '" value="' + a[0] + '"' + (val === a[0] ? ' checked' : '') + '>' + a[1] + '</label><label><input type="radio" name="' + name + '" value="' + b[0] + '"' + (val === b[0] ? ' checked' : '') + '>' + b[1] + '</label></div>'; }
-  function openForm(title, html, onSave, onDelete) {
-    formState = { onSave: onSave, onDelete: onDelete }; $('formTitle').textContent = title; $('formBody').innerHTML = html; $('formErr').hidden = true;
+  function openForm(title, html, onSave, onDelete, saveLabel) {
+    formState = { onSave: onSave, onDelete: onDelete }; $('saveBtn').textContent = saveLabel || 'Save'; $('formTitle').textContent = title; $('formBody').innerHTML = html; $('formErr').hidden = true;
     $('delBtn').hidden = !onDelete; $('saveBtn').disabled = false; $('sheet').hidden = false;
     var f = $('formBody').querySelector('[autofocus]'); if (f && matchMedia('(pointer:fine)').matches) f.focus();
   }
